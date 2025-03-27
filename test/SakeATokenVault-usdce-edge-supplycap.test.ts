@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 import { expectInRange } from "../scripts/utils/test";
 
 const { AddressZero, WeiPerEther, MaxUint256, Zero } = ethers.constants;
@@ -189,13 +188,13 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
 
   describe("interest", function () {
     it("earns interest over time", async function () {
-      let vaultStatsLast = await getVaultStats(wausdce)
+      let vaultStatsLast = await getVaultStats(wausdce, false)
       for(let i = 0; i < 3; i++) {
         // advance time
         await provider.send("evm_increaseTime", [SecondsPerHour]);
         await wausdce.connect(owner).transfer(owner.address, 1)
         // check updated stats
-        let vaultStatsNext = await getVaultStats(wausdce)
+        let vaultStatsNext = await getVaultStats(wausdce, false)
         expect(vaultStatsNext.totalSupply).eq(vaultStatsLast.totalSupply)
         expect(vaultStatsNext.usdceBalance).eq(vaultStatsLast.usdceBalance)
         expect(vaultStatsNext.ausdceBalance).gt(vaultStatsLast.ausdceBalance)
@@ -211,9 +210,9 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
       await usdce.connect(user1).approve(POOL_ADDRESS, MaxUint256)
       let transferAmount = WeiPerUsdc.mul(5)
       await pool.connect(user1).supply(USDCE_ADDRESS, transferAmount, user1.address, 0)
-      let vaultStats0 = await getVaultStats(wausdce)
+      let vaultStats0 = await getVaultStats(wausdce, false)
       await ausdce.connect(user1).transfer(wausdce.address, transferAmount)
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(transferAmount), 10)
@@ -224,9 +223,9 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
     })
     it("can earn interest when transferring in underlying", async function () {
       let transferAmount = WeiPerUsdc.mul(5)
-      let vaultStats0 = await getVaultStats(wausdce)
+      let vaultStats0 = await getVaultStats(wausdce, false)
       await usdce.connect(user1).transfer(wausdce.address, transferAmount)
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.add(transferAmount))
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
@@ -236,8 +235,8 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
       expect(vaultStats1.convertToShares).lt(vaultStats0.convertToShares)
     })
     it("maxWithdrawAsATokens accounts for underlying", async function () {
-      let vaultStats = await getVaultStats(wausdce)
-      let tokenBalances = await getTokenBalances(owner.address, true, "owner")
+      let vaultStats = await getVaultStats(wausdce, false)
+      let tokenBalances = await getTokenBalances(owner.address, false, "creator")
       expectInRange(tokenBalances.maxWithdrawAsATokens, vaultStats.totalAssets.mul(tokenBalances.wausdceBalance).div(vaultStats.totalSupply), 10)
       expect(tokenBalances.maxWithdrawAsATokens).eq(tokenBalances.maxWithdraw)
       expect(tokenBalances.maxWithdrawAsATokens).gt(vaultStats.usdceBalance)
@@ -247,9 +246,9 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
 
   describe("rebalance() 1", function () {
     it("can rebalance", async function () {
-      let vaultStats0 = await getVaultStats(wausdce)
+      let vaultStats0 = await getVaultStats(wausdce, false)
       let tx = await wausdce.connect(user1).rebalance()
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply)
       expect(vaultStats1.usdceBalance).eq(0)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(vaultStats0.usdceBalance), 10)
@@ -261,9 +260,9 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
     })
     it("rebalance with no underlying does nothing", async function () {
-      let vaultStats0 = await getVaultStats(wausdce)
+      let vaultStats0 = await getVaultStats(wausdce, false)
       let tx = await wausdce.connect(user1).rebalance()
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply)
       expect(vaultStats1.usdceBalance).eq(0)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
@@ -284,12 +283,12 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
       it("deposit to just below supply cap", async function () {
         await setUsdceBalance(user1.address, WeiPerUsdc.mul(10_000_000));
         await usdce.connect(user1).approve(wausdce.address, MaxUint256)
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let bufferAmount = WeiPerUsdc.mul(10)
         let depositAssetsAmount = vaultStats0.maxAssetsSuppliableToSake.sub(bufferAmount)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(depositAssetsAmount).div(WeiPerUsdc.mul(1000))
         let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
 
         let tx = await wausdce.connect(user1).deposit(depositAssetsAmount, user1.address)
 
@@ -306,7 +305,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount), 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -316,14 +315,11 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
         expect(vaultStats1.maxAssetsSuppliableToSake).lte(bufferAmount)
 
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
-        //expect(tokenBalances1.maxWithdraw).eq(vaultStats1.totalAssets)
-        //expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.totalAssets)
         expectInRange(tokenBalances1.maxWithdraw, vaultStats1.totalAssets.mul(tokenBalances1.wausdceBalance).div(vaultStats1.totalSupply), 10)
-        //expectInRange(tokenBalances1.maxWithdrawAsATokens, vaultStats1.totalAssets.mul(tokenBalances1.wausdceBalance).div(vaultStats1.totalSupply), 10)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
         expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
@@ -331,15 +327,13 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
       })
       it("deposit past supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let depositAssetsAmount = WeiPerUsdc.mul(10000)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(depositAssetsAmount).div(WeiPerUsdc.mul(1000))
         let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
 
-        console.log(`depositing ${formatUnits(depositAssetsAmount, 6)} USDCe`)
         let tx = await wausdce.connect(user1).deposit(depositAssetsAmount, user1.address)
-        console.log(`deposited ${formatUnits(depositAssetsAmount, 6)} USDCe`)
 
         let receipt = await tx.wait()
         let events = receipt.events
@@ -354,7 +348,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).gt(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(vaultStats0.maxAssetsSuppliableToSake), 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -364,7 +358,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
         expect(vaultStats1.maxAssetsSuppliableToSake).eq(0)
 
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
@@ -379,35 +373,22 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         //expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
 
-        //console.log('events')
-        //console.log(events)
-        //let supplyEvents = events?.filter(x => x.event == "Supply")
         let supplyEvents = events?.filter(x => !!x.topics && !!x.topics.length && x.topics[0] == "0x2b627736bca15cd5381dcf80b0bf11fd197d01a037c52b927a881a10fb73ba61")
-        //console.log('supplyEvents')
-        //console.log(supplyEvents)
         expect(supplyEvents).to.not.be.null
         expect(supplyEvents?.length).to.equal(2)
       })
     })
     describe("withdraw", function () {
       it("maxWithdraw with underlying balance and small wausdce balance", async function () {
-        let vaultStats = await getVaultStats(wausdce)
-        let tokenBalances = await getTokenBalances(owner.address, true, "owner")
+        let vaultStats = await getVaultStats(wausdce, false)
+        let tokenBalances = await getTokenBalances(owner.address, false, "creator")
         expectInRange(tokenBalances.maxWithdrawAsATokens, vaultStats.totalAssets.mul(tokenBalances.wausdceBalance).div(vaultStats.totalSupply), 10)
         expect(tokenBalances.maxWithdrawAsATokens).eq(tokenBalances.maxWithdraw)
         expect(vaultStats.usdceBalance).gte(tokenBalances.maxWithdraw)
       })
-      /*
-      it("cannot withdrawATokens over supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
-        let withdrawAssetsAmount = tokenBalances0.wausdceBalance.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply)
-        await expect(wausdce.connect(user1).withdrawATokens(withdrawAssetsAmount, user1.address, user1.address)).to.be.revertedWith("51")
-      })
-      */
       it("can withdraw using just underlying", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = WeiPerUsdc.mul(1)
         expect(withdrawAssetsAmount).lt(vaultStats0.usdceBalance)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(withdrawAssetsAmount).div(WeiPerUsdc.mul(1000))
@@ -429,7 +410,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.sub(withdrawAssetsAmount))
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -438,23 +419,20 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(withdrawAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(actualSharesAmount))
         
         expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
-        //expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.ausdceBalance)
         expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
-        //expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
 
       })
       it("can withdraw using underlying and atokens", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
-        //let withdrawAssetsAmount = tokenBalances0.wausdceBalance
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = await wausdce.convertToAssets(tokenBalances0.wausdceBalance)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(withdrawAssetsAmount).div(WeiPerUsdc.mul(1000))
         let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
@@ -470,16 +448,12 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
 
         let actualSharesAmount = withdrawEvent.args.shares
         expectInRange(actualSharesAmount, expectedSharesAmount, 1000)
-        // expected 5154882501234 to be within 5154882495570..5154882497570
-        // 5154882501234
-        // 5154882495570
-        // 5154882497570
         expectInRange(actualSharesAmount, expectedSharesAmount2, 1000)
         await expect(tx).to.emit(usdce, "Transfer").withArgs(wausdce.address, user1.address, withdrawAssetsAmount) // withdraw comes from wausdce
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount).add(vaultStats0.usdceBalance), 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -488,7 +462,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(withdrawAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(actualSharesAmount))
@@ -500,12 +474,12 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
     })
     describe("mint", function () {
       it("mint to just below supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let bufferAmount = WeiPerUsdc.mul(10)
         let mintSharesAmount = await wausdce.convertToShares(vaultStats0.maxAssetsSuppliableToSake.sub(bufferAmount))
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(mintSharesAmount).div(WeiPerUsdc.mul(1000))
         let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         
         let tx = await wausdce.connect(user1).mint(mintSharesAmount, user1.address)
 
@@ -522,7 +496,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, mintSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, actualAssetsAmount, mintSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(actualAssetsAmount), 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -532,7 +506,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
         expect(vaultStats1.maxAssetsSuppliableToSake).lte(bufferAmount)
 
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(actualAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(mintSharesAmount))
@@ -542,15 +516,13 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
       })
       it("mint past supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let mintSharesAmount = WeiPerUsdc.mul(10000)
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(mintSharesAmount).div(WeiPerUsdc.mul(1000))
         let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
 
-        console.log(`minting ${formatUnits(mintSharesAmount, 6)} waUSDCe`)
         let tx = await wausdce.connect(user1).mint(mintSharesAmount, user1.address)
-        console.log(`minted ${formatUnits(mintSharesAmount, 6)} waUSDCe`)
 
         let receipt = await tx.wait()
         let events = receipt.events
@@ -565,7 +537,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, mintSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, actualAssetsAmount, mintSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).gt(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(vaultStats0.maxAssetsSuppliableToSake), 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -575,65 +547,25 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
         expect(vaultStats1.maxAssetsSuppliableToSake).eq(0)
 
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(actualAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(mintSharesAmount))
 
         expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
-        //expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.ausdceBalance)
         expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
-        //expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
 
-        //console.log('events')
-        //console.log(events)
-        //let supplyEvents = events?.filter(x => x.event == "Supply")
         let supplyEvents = events?.filter(x => !!x.topics && !!x.topics.length && x.topics[0] == "0x2b627736bca15cd5381dcf80b0bf11fd197d01a037c52b927a881a10fb73ba61")
-        //console.log('supplyEvents')
-        //console.log(supplyEvents)
         expect(supplyEvents).to.not.be.null
         expect(supplyEvents?.length).to.equal(2)
       })
     })
     describe("redeem", function () {
-      /*
-      it("previewRedeem is capped by supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
-        //let redeemSharesAmount = tokenBalances0.wausdceBalance
-        let redeemSharesAmount = vaultStats0.totalSupply.sub(WeiPerUsdc.mul(2))
-        let expectedAssetsAmount = vaultStats0.convertToAssets.mul(redeemSharesAmount).div(WeiPerUsdc.mul(1000))
-        let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
-        let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
-        
-        expect(vaultStats0.usdceBalance).gt(0)
-        expect(vaultStats0.maxAssetsSuppliableToSake).eq(0)
-        expect(expectedAssetsAmount).gt(vaultStats0.usdceBalance)
-        //expect(expectedAssetsAmount2).eq(vaultStats0.usdceBalance.add(vaultStats0.ausdceBalance))
-        //expectInRange(expectedAssetsAmount2, vaultStats0.usdceBalance.add(vaultStats0.ausdceBalance), 1000)
-        // expected 5671409021988 to be within 5671519021709..5671519023709
-        // 5671 409 021988
-        // 5671 519 021709
-        // 5671 519 023709
-        expectInRange(expectedAssetsAmount2, redeemSharesAmount.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply), 1)
-
-        expect(expectedAssetsAmount3).lt(expectedAssetsAmount2)
-        expectInRange(expectedAssetsAmount3, redeemSharesAmount.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply), 1)
-      })
-      */
-      /*
-      it("cannot redeemAsATokens over supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
-        let redeemSharesAmount = tokenBalances0.wausdceBalance
-        await expect(wausdce.connect(user1).redeemAsATokens(redeemSharesAmount, user1.address, user1.address)).to.be.revertedWith("51")
-      })
-      */
       it("can redeem using just underlying", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let redeemSharesAmount = WeiPerUsdc.mul(1)
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(redeemSharesAmount).div(WeiPerUsdc.mul(1000))
         let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
@@ -657,7 +589,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.sub(actualAssetsAmount))
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -666,31 +598,26 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(actualAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
-        //expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(redeemSharesAmount))
 
         expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
-        //expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.ausdceBalance)
         expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
-        //expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
       })
       it("can redeem using underlying and atokens", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let redeemSharesAmount = tokenBalances0.wausdceBalance
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(redeemSharesAmount).div(WeiPerUsdc.mul(1000))
         let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
         expect(expectedAssetsAmount).gt(vaultStats0.usdceBalance)
         let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
-        //expect(expectedAssetsAmount3).eq(expectedAssetsAmount2)
         expect(expectedAssetsAmount3).lt(expectedAssetsAmount2)
-        //expectInRange(expectedAssetsAmount3, tokenBalances0.wausdceBalance.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply), 1)
-
+        
         let tx = await wausdce.connect(user1).redeem(redeemSharesAmount, user1.address, user1.address)
 
         let receipt = await tx.wait()
@@ -707,7 +634,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount).add(vaultStats0.usdceBalance), 1000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -716,7 +643,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(actualAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(redeemSharesAmount))
@@ -728,25 +655,25 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
     })
     describe("withdrawATokens", function () {
       it("deposit past supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let extraAmount = WeiPerUsdc.mul(1000)
         let depositAssetsAmount = vaultStats0.maxAssetsSuppliableToSake.add(extraAmount)
         let tx = await wausdce.connect(user1).deposit(depositAssetsAmount, user1.address)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats0.maxAssetsSuppliableToSake).gt(0)
         expect(vaultStats1.maxAssetsSuppliableToSake).eq(0)
       })
       it("cannot withdrawATokens over supply cap", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = tokenBalances0.wausdceBalance.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply)
         await expect(wausdce.connect(user1).withdrawATokens(withdrawAssetsAmount, user1.address, user1.address)).to.be.revertedWith("51")
       })
     })
     describe("redeemAsATokens", function () {
       it("cannot redeemAsATokens over supply cap", async function () {
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let redeemSharesAmount = tokenBalances0.wausdceBalance
         await expect(wausdce.connect(user1).redeemAsATokens(redeemSharesAmount, user1.address, user1.address)).to.be.revertedWith("51")
       })
@@ -756,7 +683,7 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
   context("when supply cap is infinite", function () {
     describe("with finite supply cap", async function () {
       it("withdraw some underlying", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         await wausdce.connect(user1).withdraw(vaultStats0.usdceBalance.add(WeiPerUsdc.mul(1000)), user1.address, user1.address)
       })
       it("max suppliable is limited by supply cap", async function () {
@@ -781,9 +708,8 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         let depositAssetsAmount = WeiPerUsdc.mul(100_000_000)
         await setUsdceBalance(user1.address, depositAssetsAmount)
 
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
-        //let expectedSharesAmount = vaultStats0.convertToShares.mul(depositAssetsAmount).div(WeiPerUsdc.mul(1000))
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let expectedSharesAmount = depositAssetsAmount.mul(vaultStats0.totalSupply).div(vaultStats0.totalAssets)
         let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
 
@@ -798,29 +724,21 @@ describe("SakeATokenVault-usdce-edge-supplycap", function () {
         
         let actualSharesAmount = depositEvent.args.shares
         expectInRange(actualSharesAmount, expectedSharesAmount, 20000)
-        // expected 90908494232924 to be within 90908494244333..90908494244353
-        // 909084942 32924
-        // 909084942 44333
-        // 909084942 44353
         expectInRange(actualSharesAmount, expectedSharesAmount2, 20000)
         await expect(tx).to.emit(usdce, "Transfer").withArgs(user1.address, wausdce.address, depositAssetsAmount)
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount).add(vaultStats0.usdceBalance), 1000)
-        // expected 105659528890168 to be within 105659528889447..105659528889467
-        // 105659528890168
-        // 105659528889447
-        // 105659528889467
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
         expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply.add(actualSharesAmount))
         expectInRange(vaultStats1.totalAssets, vaultStats0.totalAssets.add(depositAssetsAmount), 1000)
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 10)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
 
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(0)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))

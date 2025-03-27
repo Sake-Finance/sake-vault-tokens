@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 
 const { AddressZero, WeiPerEther, MaxUint256, Zero } = ethers.constants;
 

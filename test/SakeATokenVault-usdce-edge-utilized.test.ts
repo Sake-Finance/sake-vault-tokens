@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 import { expectInRange } from "../scripts/utils/test";
 
 const { AddressZero, WeiPerEther, MaxUint256, Zero } = ethers.constants;
@@ -182,13 +181,13 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
 
   describe("interest", function () {
     it("earns interest over time", async function () {
-      let vaultStatsLast = await getVaultStats(wausdce)
+      let vaultStatsLast = await getVaultStats(wausdce, false)
       for(let i = 0; i < 3; i++) {
         // advance time
         await provider.send("evm_increaseTime", [SecondsPerDay]);
         await wausdce.connect(owner).transfer(owner.address, 1)
         // check updated stats
-        let vaultStatsNext = await getVaultStats(wausdce)
+        let vaultStatsNext = await getVaultStats(wausdce, false)
         expect(vaultStatsNext.totalSupply).eq(vaultStatsLast.totalSupply)
         expect(vaultStatsNext.usdceBalance).eq(vaultStatsLast.usdceBalance)
         expect(vaultStatsNext.ausdceBalance).gt(vaultStatsLast.ausdceBalance)
@@ -219,18 +218,17 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
         await pool.connect(user1).supply(USDT_ADDRESS, WeiPerUsdc.mul(8_000_000), user1.address, 0)
       })
       it("borrow usdce", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        //await pool.connect(user1).borrow(USDCE_ADDRESS, WeiPerUsdc.mul(2_900_000), 2, 0, user1.address)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         await pool.connect(user1).borrow(USDCE_ADDRESS, WeiPerUsdc.mul(2_390_000), 2, 0, user1.address)
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
       })
     })
     describe("withdraw", function () {
       it("can withdraw underlying less than withdrawable", async function () {
         let withdrawAssetsAmount = WeiPerUsdc.mul(1000)
 
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let expectedSharesAmount = vaultStats0.convertToShares.mul(withdrawAssetsAmount).div(WeiPerUsdc.mul(1000))
         let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
         expect(withdrawAssetsAmount).lt(vaultStats0.maxAssetsWithdrawableFromSake)
@@ -251,24 +249,16 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 30000)
-        // expected 99100042529 to be within 99100016437..99100020437
-        // 99100 042529
-        // 99100 016437
-        // 99100 020437
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
         expectInRange(vaultStats1.totalAssets, vaultStats0.totalAssets.sub(withdrawAssetsAmount), 30000)
         expect(vaultStats1.totalSupply).eq(vaultStats0.totalSupply.sub(actualSharesAmount))
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 200)
-        // expected 1000172990 to be within 1000172867..1000172907
-        // 1000172990
-        // 1000172867
-        // 1000172907
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 200)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(withdrawAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(actualSharesAmount))
@@ -284,20 +274,18 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
       })
       it("cannot withdraw underlying more than withdrawable", async function () {
         let withdrawAssetsAmount = WeiPerUsdc.mul(1000)
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         expect(withdrawAssetsAmount).gt(vaultStats0.maxAssetsWithdrawableFromSake)
 
-        //let tx = await wausdce.connect(user1).withdraw(withdrawAssetsAmount, user1.address, user1.address)
         await expect(wausdce.connect(user1).withdraw(withdrawAssetsAmount, user1.address, user1.address)).to.be.reverted//WithCustomError(wausdce, "WithdrawFailed")
-        //await expect(wausdce.connect(user1).withdraw(withdrawAssetsAmount, user1.address, user1.address)).to.be.revertedWithCustomError(wausdce, "WithdrawFailed")
       })
     })
     describe("redeem", function () {
       it("can redeem underlying less than withdrawable", async function () {
         let redeemSharesAmount = WeiPerUsdc.mul(550)
 
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(redeemSharesAmount).div(WeiPerUsdc.mul(1000))
         let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
         expect(expectedAssetsAmount).lt(vaultStats0.maxAssetsWithdrawableFromSake)
@@ -318,7 +306,7 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount), 2000)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -327,7 +315,7 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(actualAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.sub(redeemSharesAmount))
@@ -339,13 +327,11 @@ describe("SakeATokenVault-usdce-edge-utilized", function () {
       })
       it("cannot redeem underlying more than withdrawable", async function () {
         let redeemSharesAmount = WeiPerUsdc.mul(550)
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let expectedAssetsAmount = vaultStats0.convertToAssets.mul(redeemSharesAmount).div(WeiPerUsdc.mul(1000))
         expect(expectedAssetsAmount).gt(vaultStats0.maxAssetsWithdrawableFromSake)
 
-        //let tx = await wausdce.connect(user1).redeem(redeemSharesAmount, user1.address, user1.address)
         await expect(wausdce.connect(user1).redeem(redeemSharesAmount, user1.address, user1.address)).to.be.reverted//WithCustomError(wausdce, "WithdrawFailed")
-        //await expect(wausdce.connect(user1).redeem(redeemSharesAmount, user1.address, user1.address)).to.be.revertedWithCustomError(wausdce, "WithdrawFailed")
       })
     })
   })

@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 import { expectInRange } from "../scripts/utils/test";
 import { JsonRpcSigner } from "@ethersproject/providers";
 
@@ -194,13 +193,13 @@ describe("SakeATokenVault-usdce-edge-frozen", function () {
 
   describe("interest", function () {
     it("earns interest over time", async function () {
-      let vaultStatsLast = await getVaultStats(wausdce)
+      let vaultStatsLast = await getVaultStats(wausdce, false)
       for(let i = 0; i < 1; i++) {
         // advance time
         await provider.send("evm_increaseTime", [SecondsPerDay]);
         await wausdce.connect(owner).transfer(owner.address, 1)
         // check updated stats
-        let vaultStatsNext = await getVaultStats(wausdce)
+        let vaultStatsNext = await getVaultStats(wausdce, false)
         expect(vaultStatsNext.totalSupply).eq(vaultStatsLast.totalSupply)
         expect(vaultStatsNext.usdceBalance).eq(vaultStatsLast.usdceBalance)
         expect(vaultStatsNext.ausdceBalance).gt(vaultStatsLast.ausdceBalance)
@@ -217,69 +216,18 @@ describe("SakeATokenVault-usdce-edge-frozen", function () {
     describe("freeze reserve", function () {
       it("can freeze reserve", async function () {
         let reserveConfig0 = await pool.getConfiguration(USDCE_ADDRESS)
-        //console.log(`reserveConfig0`)
-        //console.log(reserveConfig0)
-        //data: BigNumber { value: "5708991601591336895850193568432546442664346656076" }
-        //console.log(reserveConfig0.data)
-        //console.log(reserveConfig0.data.toHexString())
-        //console.log(reserveConfig0.data.and(AAVE_FROZEN_MASK.xnor(MaxUint256))))
-        //console.log(`frozen mask`)
-        //console.log(AAVE_FROZEN_MASK.toHexString())
-        //let isActive0 = reserveConfig0.data.and(AAVE_FROZEN_MASK.xnor(MaxUint256)))
-        //console.log(`mask 2`)
         let mask2 = MaxUint256.sub(AAVE_FROZEN_MASK)
-        //console.log(mask2.toHexString())
-        //console.log(`isFrozen0`)
         let isFrozenBytes0 = reserveConfig0.data.and(mask2)
         let isFrozen0 = isFrozenBytes0.gt(0)
-        //console.log(isFrozenBytes0.toHexString())
-        //console.log(isFrozen0)
         expect(isFrozen0).eq(false)
-
-        /*
-reserveConfig0
-BigNumber { value: "5708991601591336895850193568432546442664346656076" }
-0x                      03e80009896800004c4b4005dca50629cc1f401d4c
-frozen mask
-0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFDFFFFFFFFFFFFFF
-mask 2
-0x                                                0200000000000000
-isActive0
-0x00
-
-new config
-0x                      03e80009896800004c4b4005dca70629cc1f401d4c
-        */
-        //let isActive0 = reserveConfig0.
-
-        //let newConfig = reserveConfig0.data.or(AAVE_FROZEN_MASK)
-        let newConfig = reserveConfig0.data.or(mask2)
-        //console.log(`new config`)
-        //console.log(newConfig.toHexString())
-        let configuration = { data: newConfig }
-        //console.log(`setting config`)
-        //let tx = await pool.connect(timelockImpersonated).setConfiguration(USDCE_ADDRESS, configuration)
+        
         let tx = await poolConfigurator.connect(timelockImpersonated).setReserveFreeze(USDCE_ADDRESS, true)
-        //console.log(`config set`)
+
         let reserveConfig1 = await pool.getConfiguration(USDCE_ADDRESS)
-        //console.log(`reserveConfig1`)
-        //console.log(reserveConfig1)
-        //data: BigNumber { value: "
-        //console.log(reserveConfig1.data)
-        //console.log(reserveConfig1.data.toHexString())
+        let newConfig = reserveConfig0.data.or(mask2)
         expect(reserveConfig1.data).eq(newConfig)
-        //console.log(reserveConfig1.data.and(AAVE_FROZEN_MASK.xnor(MaxUint256))))
-        //console.log(`frozen mask`)
-        //console.log(AAVE_FROZEN_MASK.toHexString())
-        //let isActive0 = reserveConfig1.data.and(AAVE_FROZEN_MASK.xnor(MaxUint256)))
-        //console.log(`mask 2`)
-        //let mask2 = MaxUint256.sub(AAVE_FROZEN_MASK)
-        //console.log(mask2.toHexString())
-        //console.log(`isFrozen1`)
         let isFrozenBytes1 = reserveConfig1.data.and(mask2)
         let isFrozen1 = isFrozenBytes1.gt(0)
-        //console.log(isFrozenBytes1.toHexString())
-        //console.log(isFrozen1)
         expect(isFrozen1).eq(true)
       })
     })
@@ -299,8 +247,8 @@ new config
         await setUsdceBalance(user1.address, WeiPerUsdc.mul(10000))
         await usdce.connect(user1).approve(wausdce.address, MaxUint256)
 
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let depositAssetsAmount = WeiPerUsdc.mul(1000)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(1000).div(1000)
         let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
@@ -321,7 +269,7 @@ new config
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.add(depositAssetsAmount))
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -330,7 +278,7 @@ new config
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
         expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
@@ -345,14 +293,14 @@ new config
     })
     describe("withdrawATokens", function () {
       it("cannot withdrawATokens if it needs to supply", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = tokenBalances0.wausdceBalance.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply)
         await expect(wausdce.connect(user1).withdrawATokens(withdrawAssetsAmount, user1.address, user1.address)).to.be.revertedWith("28") // RESERVE_FROZEN
       })
       it("can withdrawATokens if it doesnt need to supply", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = WeiPerUsdc//.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(1).div(1000)
         let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
@@ -375,7 +323,7 @@ new config
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -384,7 +332,7 @@ new config
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance)
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance.add(withdrawAssetsAmount), 10)
         expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
@@ -405,11 +353,10 @@ new config
         let isFrozen0 = isFrozenBytes0.gt(0)
         expect(isFrozen0).eq(true)
 
-        //let newConfig = reserveConfig0.data.or(mask2)
-        //let configuration = { data: newConfig }
         let tx = await poolConfigurator.connect(timelockImpersonated).setReserveFreeze(USDCE_ADDRESS, false)
         let reserveConfig1 = await pool.getConfiguration(USDCE_ADDRESS)
-        //expect(reserveConfig1.data).eq(newConfig)
+        let newConfig = reserveConfig0.data.and(AAVE_FROZEN_MASK)
+        expect(reserveConfig1.data).eq(newConfig)
         let isFrozenBytes1 = reserveConfig1.data.and(mask2)
         let isFrozen1 = isFrozenBytes1.gt(0)
         expect(isFrozen1).eq(false)
@@ -420,8 +367,8 @@ new config
   context("when reserve has been unfrozen in pool", function () {
     describe("withdrawATokens", function () {
       it("can withdrawATokens even if it needs to supply", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = tokenBalances0.wausdceBalance.mul(vaultStats0.totalAssets).div(vaultStats0.totalSupply).sub(WeiPerUsdc.mul(1))
         let expectedSharesAmount = vaultStats0.convertToShares.mul(withdrawAssetsAmount).div(WeiPerUsdc.mul(1000))
         let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
@@ -444,7 +391,7 @@ new config
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(0) // all rebalanced
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(vaultStats0.usdceBalance).sub(withdrawAssetsAmount), 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -453,7 +400,7 @@ new config
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance)
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance.add(withdrawAssetsAmount), 10)
         expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
@@ -518,39 +465,18 @@ new config
     describe("pause reserve", function () {
       it("can pause reserve", async function () {
         let reserveConfig0 = await pool.getConfiguration(USDCE_ADDRESS)
-        console.log(`reserveConfig0`)
-        console.log(reserveConfig0)
-        console.log(reserveConfig0.data.toHexString())
-        console.log(`paused mask`)
-        console.log(AAVE_PAUSED_MASK.toHexString())
-        console.log(`mask 4`)
         let mask4 = MaxUint256.sub(AAVE_PAUSED_MASK)
-        console.log(mask4.toHexString())
-        console.log(`isPaused0`)
         let isPausedBytes0 = reserveConfig0.data.and(mask4)
         let isPaused0 = isPausedBytes0.gt(0)
-        console.log(isPausedBytes0.toHexString())
-        console.log(isPaused0)
         expect(isPaused0).eq(false)
 
-        let newConfig = reserveConfig0.data.or(mask4)
-        console.log(`new config`)
-        console.log(newConfig.toHexString())
-
         let tx = await poolConfigurator.connect(timelockImpersonated).setReservePause(USDCE_ADDRESS, true)
+        
         let reserveConfig1 = await pool.getConfiguration(USDCE_ADDRESS)
-        console.log(`reserveConfig1`)
-        console.log(reserveConfig1.data.toHexString())
+        let newConfig = reserveConfig0.data.or(mask4)
         expect(reserveConfig1.data).eq(newConfig)
-        console.log(`paused mask`)
-        console.log(AAVE_ACTIVE_MASK.toHexString())
-        console.log(`mask 4`)
-        console.log(mask4.toHexString())
-        console.log(`isPaused0`)
         let isPausedBytes1 = reserveConfig1.data.and(mask4)
         let isPaused1 = isPausedBytes1.gt(0)
-        console.log(isPausedBytes1.toHexString())
-        console.log(isPaused1)
         expect(isPaused1).eq(true)
       })
     })
@@ -569,8 +495,8 @@ new config
         await setUsdceBalance(user1.address, WeiPerUsdc.mul(10000))
         await usdce.connect(user1).approve(wausdce.address, MaxUint256)
 
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let depositAssetsAmount = WeiPerUsdc.mul(1000)
         let expectedSharesAmount = vaultStats0.convertToShares.mul(1000).div(1000)
         let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
@@ -591,7 +517,7 @@ new config
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.add(depositAssetsAmount))
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -600,16 +526,13 @@ new config
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
 
-        //expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
         expect(tokenBalances1.maxWithdraw).eq(vaultStats1.usdceBalance)
-        //expect(tokenBalances1.maxWithdrawAsATokens).lt(tokenBalances1.maxWithdraw)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.ausdceBalance)
-        //expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeem, vaultStats1.usdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
         expect(tokenBalances1.maxRedeemAsATokens).lt(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
@@ -621,20 +544,19 @@ new config
         await ausdce.connect(user1).approve(wausdce.address, MaxUint256)
         expect(await ausdce.allowance(user1.address, wausdce.address)).gte(WeiPerUsdc)
 
-        //await wausdce.connect(user1).depositATokens(WeiPerUsdc, user1.address)
+        await expect(ausdce.connect(user1).transfer(user2.address, WeiPerUsdc)).to.be.revertedWith("29") // RESERVE_PAUSED
         await expect(wausdce.connect(user1).depositATokens(WeiPerUsdc, user1.address)).to.be.revertedWith("29") // RESERVE_PAUSED
       })
     })
     describe("withdrawATokens", function () {
       it("cannot withdrawATokens - cannot transfer atokens", async function () {
-        //await wausdce.connect(user1).withdrawATokens(WeiPerUsdc, user1.address, user1.address)
         await expect(wausdce.connect(user1).withdrawATokens(WeiPerUsdc, user1.address, user1.address)).to.be.revertedWith("29") // RESERVE_PAUSED
       })
     })
     describe("withdraw", function () {
       it("can withdraw underlying if it doesn't need to withdraw from sake", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
-        let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+        let vaultStats0 = await getVaultStats(wausdce, false)
+        let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
         let withdrawAssetsAmount = WeiPerUsdc
         expect(withdrawAssetsAmount).lte(tokenBalances0.usdceBalance)
         let expectedSharesAmount = withdrawAssetsAmount.mul(vaultStats0.totalSupply).div(vaultStats0.totalAssets)
@@ -656,7 +578,7 @@ new config
         await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
         await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-        let vaultStats1 = await getVaultStats(wausdce)
+        let vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance.sub(withdrawAssetsAmount))
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -665,27 +587,17 @@ new config
         expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
         expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
         
-        let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+        let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
         expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(withdrawAssetsAmount))
         expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance, 10)
         expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
-        //expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
-        //expect(tokenBalances1.maxWithdrawAsATokens).eq(tokenBalances1.maxWithdraw)
-        //expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
-        //expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
-
-        //expectInRange(tokenBalances1.maxWithdraw, tokenBalances1.wausdceBalance.mul(vaultStats1.totalAssets).div(vaultStats1.totalSupply), 10)
         expect(tokenBalances1.maxWithdraw).eq(vaultStats1.usdceBalance)
-        //expect(tokenBalances1.maxWithdrawAsATokens).lt(tokenBalances1.maxWithdraw)
         expect(tokenBalances1.maxWithdrawAsATokens).eq(vaultStats1.ausdceBalance)
-        //expectInRange(tokenBalances1.maxWithdrawAsATokens, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
-        //expect(tokenBalances1.maxRedeem).eq(tokenBalances1.wausdceBalance)
-        //expect(tokenBalances1.maxRedeemAsATokens).lt(tokenBalances1.wausdceBalance)
         expectInRange(tokenBalances1.maxRedeem, vaultStats1.usdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
         expectInRange(tokenBalances1.maxRedeemAsATokens, vaultStats1.ausdceBalance.mul(vaultStats1.totalSupply).div(vaultStats1.totalAssets), 10)
       })
       it("cannot withdraw underlying if needs to withdraw from sake", async function () {
-        let vaultStats0 = await getVaultStats(wausdce)
+        let vaultStats0 = await getVaultStats(wausdce, false)
         let withdrawAssetsAmount = vaultStats0.usdceBalance.add(1)
         await expect(wausdce.connect(user1).withdrawATokens(WeiPerUsdc, user1.address, user1.address)).to.be.revertedWith("29") // RESERVE_PAUSED
       })
@@ -693,40 +605,18 @@ new config
     describe("unpause reserve", function () {
       it("can unpause reserve", async function () {
         let reserveConfig0 = await pool.getConfiguration(USDCE_ADDRESS)
-        console.log(`reserveConfig0`)
-        console.log(reserveConfig0)
-        console.log(reserveConfig0.data.toHexString())
-        console.log(`paused mask`)
-        console.log(AAVE_PAUSED_MASK.toHexString())
-        console.log(`mask 4`)
         let mask4 = MaxUint256.sub(AAVE_PAUSED_MASK)
-        console.log(mask4.toHexString())
-        console.log(`isPaused0`)
         let isPausedBytes0 = reserveConfig0.data.and(mask4)
         let isPaused0 = isPausedBytes0.gt(0)
-        console.log(isPausedBytes0.toHexString())
-        console.log(isPaused0)
         expect(isPaused0).eq(true)
 
-        //let newConfig = reserveConfig0.data.or(mask4)
-        let newConfig = reserveConfig0.data.and(AAVE_PAUSED_MASK)
-        console.log(`new config`)
-        console.log(newConfig.toHexString())
-
         let tx = await poolConfigurator.connect(timelockImpersonated).setReservePause(USDCE_ADDRESS, false)
+        
         let reserveConfig1 = await pool.getConfiguration(USDCE_ADDRESS)
-        console.log(`reserveConfig1`)
-        console.log(reserveConfig1.data.toHexString())
+        let newConfig = reserveConfig0.data.and(AAVE_PAUSED_MASK)
         expect(reserveConfig1.data).eq(newConfig)
-        console.log(`paused mask`)
-        console.log(AAVE_ACTIVE_MASK.toHexString())
-        console.log(`mask 4`)
-        console.log(mask4.toHexString())
-        console.log(`isPaused0`)
         let isPausedBytes1 = reserveConfig1.data.and(mask4)
         let isPaused1 = isPausedBytes1.gt(0)
-        console.log(isPausedBytes1.toHexString())
-        console.log(isPaused1)
         expect(isPaused1).eq(false)
       })
     })

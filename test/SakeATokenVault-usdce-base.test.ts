@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 import { expectInRange } from "../scripts/utils/test";
 
 const { AddressZero, WeiPerEther, MaxUint256, Zero } = ethers.constants;
@@ -117,14 +116,12 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(deployContract(deployer, "SakeATokenVault", [USDCE_ADDRESS, AUSDCE_ADDRESS, AddressZero, referralCode])).to.be.reverted//WithCustomError(vaultImplementation, "AddressZero");
     })
     it("cannot deploy SakeATokenVault with token not a reserve", async function () {
-      //await expect(deployContract(deployer, "SakeATokenVault", [user1.address, referralCode, AAVE_POOL_ADDRESSES_PROVIDER_ADDRESS])).to.be.revertedWith("ASSET_NOT_SUPPORTED");
       await expect(deployContract(deployer, "SakeATokenVault", [otherToken.address, AUSDCE_ADDRESS, POOL_ADDRESS, referralCode])).to.be.reverted//WithCustomError(vaultImplementation, "AssetNotInPool");
     })
     it("cannot deploy SakeATokenVault with asset invalid", async function () {
       await expect(deployContract(deployer, "SakeATokenVault", [USDCE_ADDRESS, otherToken.address, POOL_ADDRESS, referralCode])).to.be.reverted//WithCustomError(vaultImplementation, "AssetNotInPool");
     })
     it("can deploy SakeATokenVault implementation", async function () {
-      //vaultImplementation = await deployContract(deployer, "SakeATokenVault", [USDCE_ADDRESS, referralCode, AAVE_POOL_ADDRESSES_PROVIDER_ADDRESS]) as SakeATokenVault;
       vaultImplementation = await deployContract(deployer, "SakeATokenVault", [USDCE_ADDRESS, AUSDCE_ADDRESS, POOL_ADDRESS, referralCode]) as SakeATokenVault;
       await expectDeployed(vaultImplementation.address);
       l1DataFeeAnalyzer.register("deploy SakeATokenVault implementation", vaultImplementation.deployTransaction);
@@ -235,7 +232,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce.referralCode()).eq(0)
     })
     it("starts with supply", async function () {
-      let vaultStats = await getVaultStats(wausdce)
+      let vaultStats = await getVaultStats(wausdce, false)
       expect(vaultStats.totalSupply).eq(WeiPerUsdc.mul(100))
       expect(vaultStats.usdceBalance).eq(0)
       expect(vaultStats.ausdceBalance).eq(WeiPerUsdc.mul(100))
@@ -245,7 +242,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(vaultStats.convertToShares).eq(WeiPerUsdc.mul(1000))
     })
     it("creator starts with balance", async function () {
-      let tokenBalances = await getTokenBalances(owner.address, true, "creator")
+      let tokenBalances = await getTokenBalances(owner.address, false, "creator")
       expect(tokenBalances.usdceBalance).eq(WeiPerUsdc.mul(9_900))
       expect(tokenBalances.ausdceBalance).eq(0)
       expect(tokenBalances.wausdceBalance).eq(WeiPerUsdc.mul(100))
@@ -265,13 +262,13 @@ describe("SakeATokenVault-usdce-base", function () {
 
   describe("interest", function () {
     it("earns interest over time", async function () {
-      let vaultStatsLast = await getVaultStats(wausdce)
+      let vaultStatsLast = await getVaultStats(wausdce, false)
       for(let i = 0; i < 3; i++) {
         // advance time
         await provider.send("evm_increaseTime", [SecondsPerHour]);
         await wausdce.connect(owner).transfer(owner.address, 1)
         // check updated stats
-        let vaultStatsNext = await getVaultStats(wausdce)
+        let vaultStatsNext = await getVaultStats(wausdce, false)
         expect(vaultStatsNext.totalSupply).eq(vaultStatsLast.totalSupply)
         expect(vaultStatsNext.usdceBalance).eq(vaultStatsLast.usdceBalance)
         expect(vaultStatsNext.ausdceBalance).gt(vaultStatsLast.ausdceBalance)
@@ -306,8 +303,8 @@ describe("SakeATokenVault-usdce-base", function () {
       let depositAssetsAmount = WeiPerUsdc.mul(10)
       await setUsdceBalance(user1.address, mintAmount)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(10).div(1000)
       let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
 
@@ -327,7 +324,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user1.address, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user1.address, depositAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -336,7 +333,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 10)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
 
-      let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+      let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
       expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.sub(depositAssetsAmount))
       expect(tokenBalances1.ausdceBalance).eq(0)
       expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
@@ -348,9 +345,9 @@ describe("SakeATokenVault-usdce-base", function () {
     it("can deposit to other user", async function () {
       let depositAssetsAmount = WeiPerUsdc.mul(20)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances05 = await getTokenBalances(user5.address, true, "user5")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances05 = await getTokenBalances(user5.address, false, "user5")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(20).div(1000)
       let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
 
@@ -370,7 +367,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user5.address, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user1.address, user5.address, depositAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -379,8 +376,8 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
 
-      let tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances15 = await getTokenBalances(user5.address, true, "user5")
+      let tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances15 = await getTokenBalances(user5.address, false, "user5")
       expect(tokenBalances11.usdceBalance).eq(tokenBalances01.usdceBalance.sub(depositAssetsAmount))
       expect(tokenBalances11.ausdceBalance).eq(0)
       expect(tokenBalances11.wausdceBalance).eq(tokenBalances01.wausdceBalance)
@@ -412,8 +409,8 @@ describe("SakeATokenVault-usdce-base", function () {
       await usdce.connect(user2).approve(POOL_ADDRESS, MaxUint256)
       await pool.connect(user2).supply(USDCE_ADDRESS, mintAmount, user2.address, 0)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user2.address, true, "user2")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user2.address, false, "user2")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(10).div(1000)
       let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
 
@@ -433,7 +430,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user2.address, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user2.address, user2.address, depositAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -442,7 +439,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user2.address, true, "user2")
+      let tokenBalances1 = await getTokenBalances(user2.address, false, "user2")
       expect(tokenBalances1.usdceBalance).eq(0)
       expectInRange(tokenBalances1.ausdceBalance, mintAmount.sub(depositAssetsAmount), 10)
       expect(tokenBalances1.wausdceBalance).eq(tokenBalances0.wausdceBalance.add(actualSharesAmount))
@@ -452,13 +449,11 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(tokenBalances1.maxRedeemAsATokens).eq(tokenBalances1.wausdceBalance)
     })
     it("can depositATokens to other user", async function () {
-      //let mintAmount = WeiPerUsdc.mul(100)
       let depositAssetsAmount = WeiPerUsdc.mul(20)
-      //await setUsdceBalance(user2.address, mintAmount)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances02 = await getTokenBalances(user2.address, true, "user2")
-      let tokenBalances05 = await getTokenBalances(user5.address, true, "user5")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances02 = await getTokenBalances(user2.address, false, "user2")
+      let tokenBalances05 = await getTokenBalances(user5.address, false, "user5")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(20).div(1000)
       let expectedSharesAmount2 = await wausdce.previewDeposit(depositAssetsAmount)
 
@@ -478,7 +473,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user5.address, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user2.address, user5.address, depositAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(depositAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -487,10 +482,9 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 10)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 10)
       
-      let tokenBalances12 = await getTokenBalances(user2.address, true, "user2")
-      let tokenBalances15 = await getTokenBalances(user5.address, true, "user5")
+      let tokenBalances12 = await getTokenBalances(user2.address, false, "user2")
+      let tokenBalances15 = await getTokenBalances(user5.address, false, "user5")
       expect(tokenBalances12.usdceBalance).eq(tokenBalances02.usdceBalance)
-      //expect(tokenBalances12.ausdceBalance).eq(0)
       expectInRange(tokenBalances12.ausdceBalance, tokenBalances02.ausdceBalance.sub(depositAssetsAmount), 10)
       expect(tokenBalances12.wausdceBalance).eq(tokenBalances02.wausdceBalance)
       expect(tokenBalances15.usdceBalance).eq(0)
@@ -518,13 +512,12 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(wausdce.connect(user3).mint(WeiPerUsdc.mul(100), user3.address)).to.be.revertedWith("ERC20: transfer amount exceeds balance")
     })
     it("can mint", async function () {
-
       let mintAmount = WeiPerUsdc.mul(100)
       let mintSharesAmount = WeiPerUsdc.mul(10)
       await setUsdceBalance(user3.address, mintAmount)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user3.address, true, "user3")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user3.address, false, "user3")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(10).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
 
@@ -544,7 +537,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user3.address, mintSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user3.address, user3.address, actualAssetsAmount, mintSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -553,7 +546,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user3.address, true, "user3")
+      let tokenBalances1 = await getTokenBalances(user3.address, false, "user3")
       expect(tokenBalances1.usdceBalance).eq(mintAmount.sub(actualAssetsAmount))
       expect(tokenBalances1.ausdceBalance).eq(0)
       expect(tokenBalances1.wausdceBalance).eq(mintSharesAmount)
@@ -565,9 +558,9 @@ describe("SakeATokenVault-usdce-base", function () {
     it("can mint to other user", async function () {
       let mintSharesAmount = WeiPerUsdc.mul(20)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances03 = await getTokenBalances(user3.address, true, "user3")
-      let tokenBalances05 = await getTokenBalances(user5.address, true, "user5")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances03 = await getTokenBalances(user3.address, false, "user3")
+      let tokenBalances05 = await getTokenBalances(user5.address, false, "user5")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(20).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
 
@@ -587,7 +580,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user5.address, mintSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user3.address, user5.address, actualAssetsAmount, mintSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -596,8 +589,8 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances13 = await getTokenBalances(user3.address, true, "user3")
-      let tokenBalances15 = await getTokenBalances(user5.address, true, "user5")
+      let tokenBalances13 = await getTokenBalances(user3.address, false, "user3")
+      let tokenBalances15 = await getTokenBalances(user5.address, false, "user5")
       expect(tokenBalances13.usdceBalance).eq(tokenBalances03.usdceBalance.sub(actualAssetsAmount))
       expect(tokenBalances13.ausdceBalance).eq(0)
       expect(tokenBalances13.wausdceBalance).eq(tokenBalances03.wausdceBalance)
@@ -620,15 +613,14 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(wausdce.connect(user4).mintWithATokens(WeiPerUsdc.mul(100), user4.address)).to.be.reverted
     })
     it("can mintWithATokens", async function () {
-
       let mintAmount = WeiPerUsdc.mul(100)
       let mintSharesAmount = WeiPerUsdc.mul(10)
       await setUsdceBalance(user4.address, mintAmount)
       await usdce.connect(user4).approve(POOL_ADDRESS, MaxUint256)
       await pool.connect(user4).supply(USDCE_ADDRESS, mintAmount, user4.address, 0)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user4.address, true, "user4")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user4.address, false, "user4")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(10).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
 
@@ -648,7 +640,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user4.address, mintSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user4.address, user4.address, actualAssetsAmount, mintSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -657,7 +649,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user4.address, true, "user4")
+      let tokenBalances1 = await getTokenBalances(user4.address, false, "user4")
       expect(tokenBalances1.usdceBalance).eq(0)
       expectInRange(tokenBalances1.ausdceBalance, mintAmount.sub(actualAssetsAmount), 10)
       expect(tokenBalances1.wausdceBalance).eq(mintSharesAmount)
@@ -669,9 +661,9 @@ describe("SakeATokenVault-usdce-base", function () {
     it("can mintWithATokens to other user", async function () {
       let mintSharesAmount = WeiPerUsdc.mul(20)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances04 = await getTokenBalances(user4.address, true, "user4")
-      let tokenBalances05 = await getTokenBalances(user5.address, true, "user5")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances04 = await getTokenBalances(user4.address, false, "user4")
+      let tokenBalances05 = await getTokenBalances(user5.address, false, "user5")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(20).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewMint(mintSharesAmount)
 
@@ -691,7 +683,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(AddressZero, user5.address, mintSharesAmount)
       await expect(tx).to.emit(wausdce, "Deposit").withArgs(user4.address, user5.address, actualAssetsAmount, mintSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.add(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -700,8 +692,8 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances14 = await getTokenBalances(user4.address, true, "user4")
-      let tokenBalances15 = await getTokenBalances(user5.address, true, "user5")
+      let tokenBalances14 = await getTokenBalances(user4.address, false, "user4")
+      let tokenBalances15 = await getTokenBalances(user5.address, false, "user5")
       expect(tokenBalances14.usdceBalance).eq(0)
       expectInRange(tokenBalances14.ausdceBalance, tokenBalances04.ausdceBalance.sub(actualAssetsAmount), 10)
       expect(tokenBalances14.wausdceBalance).eq(tokenBalances04.wausdceBalance)
@@ -728,8 +720,8 @@ describe("SakeATokenVault-usdce-base", function () {
     it("can withdraw", async function () {
       let withdrawAssetsAmount = WeiPerUsdc.mul(5)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(5).div(1000)
       let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
       let expectedSharesAmount3 = await wausdce.previewWithdrawAsATokens(withdrawAssetsAmount)
@@ -751,7 +743,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -760,7 +752,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+      let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
       expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(withdrawAssetsAmount))
       expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
       expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
@@ -778,10 +770,10 @@ describe("SakeATokenVault-usdce-base", function () {
       await wausdce.connect(user1).approve(user6.address, approvalAmount)
       let withdrawAssetsAmount = WeiPerUsdc.mul(1)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances06 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances07 = await getTokenBalances(user7.address, true, "user7")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances06 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances07 = await getTokenBalances(user7.address, false, "user7")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(1).div(1000)
       let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
       let expectedSharesAmount3 = await wausdce.previewWithdrawAsATokens(withdrawAssetsAmount)
@@ -803,7 +795,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user6.address, user7.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -812,9 +804,9 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
 
-      let tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances16 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances17 = await getTokenBalances(user7.address, true, "user7")
+      let tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances16 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances17 = await getTokenBalances(user7.address, false, "user7")
 
       expect(tokenBalances11.usdceBalance).eq(tokenBalances01.usdceBalance)
       expect(tokenBalances11.ausdceBalance).eq(tokenBalances01.ausdceBalance)
@@ -853,8 +845,8 @@ describe("SakeATokenVault-usdce-base", function () {
     it("can withdrawATokens", async function () {
       let withdrawAssetsAmount = WeiPerUsdc.mul(5)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(5).div(1000)
       let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
       let expectedSharesAmount3 = await wausdce.previewWithdrawAsATokens(withdrawAssetsAmount)
@@ -876,7 +868,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -885,7 +877,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+      let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
       expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance)
       expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance.add(withdrawAssetsAmount), 10)
       expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(expectedSharesAmount))
@@ -903,10 +895,10 @@ describe("SakeATokenVault-usdce-base", function () {
       await wausdce.connect(user1).approve(user6.address, approvalAmount)
       let withdrawAssetsAmount = WeiPerUsdc.mul(1)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances06 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances07 = await getTokenBalances(user7.address, true, "user7")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances06 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances07 = await getTokenBalances(user7.address, false, "user7")
       let expectedSharesAmount = vaultStats0.convertToShares.mul(1).div(1000)
       let expectedSharesAmount2 = await wausdce.previewWithdraw(withdrawAssetsAmount)
       let expectedSharesAmount3 = await wausdce.previewWithdrawAsATokens(withdrawAssetsAmount)
@@ -928,7 +920,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, actualSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user6.address, user7.address, user1.address, withdrawAssetsAmount, actualSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(withdrawAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -937,9 +929,9 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
 
-      let tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances16 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances17 = await getTokenBalances(user7.address, true, "user7")
+      let tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances16 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances17 = await getTokenBalances(user7.address, false, "user7")
 
       expect(tokenBalances11.usdceBalance).eq(tokenBalances01.usdceBalance)
       expectInRange(tokenBalances11.ausdceBalance, tokenBalances01.ausdceBalance, 10)
@@ -966,15 +958,13 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce.previewRedeem(0)).eq(0)
     })
     it("cannot redeem with insufficient balance", async function () {
-      //await wausdce.connect(user1).redeem(WeiPerUsdc.mul(100), user1.address, user1.address)
-      //await expect(wausdce.connect(user1).redeem(WeiPerUsdc.mul(100), user1.address, user1.address)).to.be.revertedWith("REDEEM_EXCEEDS_MAX")//CustomError(wausdce, "WithdrawExceedsMax")
       await expect(wausdce.connect(user1).redeem(WeiPerUsdc.mul(100), user1.address, user1.address)).to.be.revertedWithCustomError(wausdce, "ERC20InsufficientBalance")
     })
     it("can redeem", async function () {
       let redeemSharesAmount = WeiPerUsdc.mul(5)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(5).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
       let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
@@ -996,7 +986,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -1005,7 +995,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+      let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
       expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance.add(actualAssetsAmount))
       expect(tokenBalances1.ausdceBalance).eq(tokenBalances0.ausdceBalance)
       expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(redeemSharesAmount))
@@ -1023,10 +1013,10 @@ describe("SakeATokenVault-usdce-base", function () {
       await wausdce.connect(user1).approve(user6.address, approvalAmount)
       let redeemSharesAmount = WeiPerUsdc.mul(1)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances06 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances07 = await getTokenBalances(user7.address, true, "user7")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances06 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances07 = await getTokenBalances(user7.address, false, "user7")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(1).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
       let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
@@ -1048,7 +1038,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user6.address, user7.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -1057,9 +1047,9 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
 
-      let tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances16 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances17 = await getTokenBalances(user7.address, true, "user7")
+      let tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances16 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances17 = await getTokenBalances(user7.address, false, "user7")
 
       expect(tokenBalances11.usdceBalance).eq(tokenBalances01.usdceBalance)
       expect(tokenBalances11.ausdceBalance).eq(tokenBalances01.ausdceBalance)
@@ -1081,7 +1071,7 @@ describe("SakeATokenVault-usdce-base", function () {
     })
     /*
     it("cannot redeem for zero assets", async function () {
-      // requires balance manipulation, cannot happen in production
+      // requires balance manipulation, cannot happen in production without a hack
       await wausdce.connect(user1).redeem(1, user1.address, user1.address)
       //await expect(wausdce.connect(user1).redeem(1, user1.address, user1.address)).to.be.revertedWith()
     })
@@ -1093,15 +1083,13 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce.previewRedeemAsATokens(0)).eq(0)
     })
     it("cannot redeemAsATokens with insufficient balance", async function () {
-      //await wausdce.connect(user1).redeemAsATokens(WeiPerUsdc.mul(100), user1.address, user1.address)
-      //await expect(wausdce.connect(user1).redeemAsATokens(WeiPerUsdc.mul(100), user1.address, user1.address)).to.be.revertedWith("REDEEM_EXCEEDS_MAX")//CustomError(wausdce, "WithdrawExceedsMax")
       await expect(wausdce.connect(user1).redeemAsATokens(WeiPerUsdc.mul(100), user1.address, user1.address)).to.be.revertedWithCustomError(wausdce, "ERC20InsufficientBalance")
     })
     it("can redeemAsATokens", async function () {
       let redeemSharesAmount = WeiPerUsdc.mul(5)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances0 = await getTokenBalances(user1.address, true, "user1")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances0 = await getTokenBalances(user1.address, false, "user1")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(5).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
       let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
@@ -1123,7 +1111,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user1.address, user1.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -1132,7 +1120,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
       
-      let tokenBalances1 = await getTokenBalances(user1.address, true, "user1")
+      let tokenBalances1 = await getTokenBalances(user1.address, false, "user1")
       expect(tokenBalances1.usdceBalance).eq(tokenBalances0.usdceBalance)
       expectInRange(tokenBalances1.ausdceBalance, tokenBalances0.ausdceBalance.add(actualAssetsAmount), 10)
       expectInRange(tokenBalances1.wausdceBalance, tokenBalances0.wausdceBalance.sub(redeemSharesAmount))
@@ -1150,10 +1138,10 @@ describe("SakeATokenVault-usdce-base", function () {
       await wausdce.connect(user1).approve(user6.address, approvalAmount)
       let redeemSharesAmount = WeiPerUsdc.mul(1)
 
-      let vaultStats0 = await getVaultStats(wausdce)
-      let tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances06 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances07 = await getTokenBalances(user7.address, true, "user7")
+      let vaultStats0 = await getVaultStats(wausdce, false)
+      let tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances06 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances07 = await getTokenBalances(user7.address, false, "user7")
       let expectedAssetsAmount = vaultStats0.convertToAssets.mul(1).div(1000)
       let expectedAssetsAmount2 = await wausdce.previewRedeem(redeemSharesAmount)
       let expectedAssetsAmount3 = await wausdce.previewRedeemAsATokens(redeemSharesAmount)
@@ -1175,7 +1163,7 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "Transfer").withArgs(user1.address, AddressZero, redeemSharesAmount)
       await expect(tx).to.emit(wausdce, "Withdraw").withArgs(user6.address, user7.address, user1.address, actualAssetsAmount, redeemSharesAmount)
 
-      let vaultStats1 = await getVaultStats(wausdce)
+      let vaultStats1 = await getVaultStats(wausdce, false)
       expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
       expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance.sub(actualAssetsAmount), 10)
       expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -1184,9 +1172,9 @@ describe("SakeATokenVault-usdce-base", function () {
       expectInRange(vaultStats1.convertToAssets, vaultStats0.convertToAssets, 20)
       expectInRange(vaultStats1.convertToShares, vaultStats0.convertToShares, 20)
 
-      let tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-      let tokenBalances16 = await getTokenBalances(user6.address, true, "user6")
-      let tokenBalances17 = await getTokenBalances(user7.address, true, "user7")
+      let tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+      let tokenBalances16 = await getTokenBalances(user6.address, false, "user6")
+      let tokenBalances17 = await getTokenBalances(user7.address, false, "user7")
 
       expect(tokenBalances11.usdceBalance).eq(tokenBalances01.usdceBalance)
       expectInRange(tokenBalances11.ausdceBalance, tokenBalances01.ausdceBalance, 10)
@@ -1208,7 +1196,7 @@ describe("SakeATokenVault-usdce-base", function () {
     })
     /*
     it("cannot redeemAsATokens for zero assets", async function () {
-      // requires balance manipulation, cannot happen in production
+      // requires balance manipulation, cannot happen in production without a hack
       await wausdce.connect(user1).redeemAsATokens(1, user1.address, user1.address)
     })
     */
@@ -1220,7 +1208,6 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce.pendingOwner()).eq(AddressZero);
     })
     it("non owner cannot transfer ownership", async function () {
-      //await wausdce.connect(user1).transferOwnership(user1.address)
       await expect(wausdce.connect(user1).transferOwnership(user1.address)).to.be.revertedWithCustomError(wausdce, "OwnableUnauthorizedAccount");
     });
     it("owner can start ownership transfer", async function () {
@@ -1230,7 +1217,6 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "OwnershipTransferStarted").withArgs(owner.address, user2.address);
     });
     it("non pending owner cannot accept ownership", async function () {
-      //await wausdce.connect(user1).acceptOwnership()
       await expect(wausdce.connect(user1).acceptOwnership()).to.be.revertedWithCustomError(wausdce, "OwnableUnauthorizedAccount");
     });
     it("new owner can accept ownership", async function () {
@@ -1240,7 +1226,6 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "OwnershipTransferred").withArgs(owner.address, user2.address);
     });
     it("old owner does not have ownership rights", async function () {
-      //await wausdce.connect(owner).rescueTokens(otherToken.address, user1.address, 0)
       await expect(wausdce.connect(owner).rescueTokens(otherToken.address, user1.address, 0)).to.be.revertedWithCustomError(wausdce, "OwnableUnauthorizedAccount")
       await expect(wausdce.connect(owner).claimRewards(user1.address)).to.be.revertedWithCustomError(wausdce, "OwnableUnauthorizedAccount")
     });
@@ -1252,28 +1237,21 @@ describe("SakeATokenVault-usdce-base", function () {
       await expect(tx).to.emit(wausdce, "TokensRescued").withArgs(otherToken.address, user1.address, WeiPerEther.mul(10));
     });
     it("cannot rescue underlying", async function () {
-      await expect(wausdce.connect(user2).rescueTokens(USDCE_ADDRESS, user1.address, 0)).to.be.revertedWithCustomError(wausdce, "CannotRescueUnderlying")//("CANNOT_RESCUE_UNDERLYING")
+      await expect(wausdce.connect(user2).rescueTokens(USDCE_ADDRESS, user1.address, 0)).to.be.revertedWithCustomError(wausdce, "CannotRescueUnderlying")
     });
     it("cannot rescue aToken", async function () {
-      await expect(wausdce.connect(user2).rescueTokens(AUSDCE_ADDRESS, user1.address, 0)).to.be.revertedWithCustomError(wausdce, "CannotRescueAToken")//("CANNOT_RESCUE_ATOKEN")
+      await expect(wausdce.connect(user2).rescueTokens(AUSDCE_ADDRESS, user1.address, 0)).to.be.revertedWithCustomError(wausdce, "CannotRescueAToken")
     });
     it("new owner has ownership rights - claimRewards", async function () {
       let tx = await wausdce.connect(user2).claimRewards(user3.address)
-      //expect(await otherToken.balanceOf(user1.address)).eq(WeiPerEther.mul(10))
-      //expect(await otherToken.balanceOf(wausdce.address)).eq(WeiPerEther.mul(90))
       let rewardsList = [] as any[] // no rewards
       let claimedAmounts = [] as any[]
       await expect(tx).to.emit(wausdce, "RewardsClaimed").withArgs(user3.address, rewardsList, claimedAmounts);
-      //let receipt = await tx.wait()
-      //let events = receipt.events
-      //console.log(`events`)
-      //console.log(events)
     });
     it("cannot claim rewards to address zero", async function () {
       await expect(wausdce.connect(user2).claimRewards(AddressZero)).to.be.revertedWithCustomError(wausdce, "AddressZero");
     })
     it("non owner cannot renounce ownership", async function () {
-      //await wausdce.connect(user1).renounceOwnership()
       await expect(wausdce.connect(user1).renounceOwnership()).to.be.revertedWithCustomError(wausdce, "OwnableUnauthorizedAccount");
     });
     it("owner can renounce ownership", async function () {
@@ -1360,7 +1338,7 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce2.referralCode()).eq(0)
     })
     it("starts with supply", async function () {
-      let vaultStats = await getVaultStats(wausdce2)
+      let vaultStats = await getVaultStats(wausdce2, false)
       expect(vaultStats.totalSupply).eq(WeiPerUsdc.mul(100))
       expect(vaultStats.usdceBalance).eq(0)
       expect(vaultStats.ausdceBalance).eq(WeiPerUsdc.mul(100))
@@ -1373,13 +1351,6 @@ describe("SakeATokenVault-usdce-base", function () {
       expect(await wausdce2.balanceOf(owner.address)).eq(WeiPerUsdc.mul(100))
     })
   })
-
-  /*
-  describe("withdrawATokens 2", function () {
-    it("can withdrawATokens and convert some underlying to atoken", async function () {
-    })
-  })
-  */
 
   async function setUsdceBalance(address:string, amount:BigNumberish) {
     //let balanceOfSlot = await findERC20BalanceOfSlot(USDCE_ADDRESS)

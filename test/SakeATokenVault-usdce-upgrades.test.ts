@@ -18,7 +18,6 @@ import { decimalsToAmount } from "../scripts/utils/price";
 import { leftPad, rightPad } from "../scripts/utils/strings";
 import { deployContract } from "../scripts/utils/deployContract";
 import L1DataFeeAnalyzer from "../scripts/utils/L1DataFeeAnalyzer";
-import { getSelectors, FacetCutAction, calcSighash, calcSighashes, getCombinedAbi } from "./../scripts/utils/diamond"
 import { expectInRange } from "../scripts/utils/test";
 
 const { AddressZero, WeiPerEther, MaxUint256, Zero } = ethers.constants;
@@ -190,18 +189,12 @@ describe("SakeATokenVault-usdce-upgrades", function () {
     })
     it("proxy has correct implementation", async function () {
       let value = await provider.getStorageAt(wausdce.address, PROXY_IMPLEMENTATION_SLOT);
-      //console.log(`impl`);
-      //console.log(value);
       let impl = bytes32ToAddress(value)
-      //console.log(impl);
       expect(impl).eq(vaultImplementation.address)
     })
     it("proxy has correct admin", async function () {
       let value = await provider.getStorageAt(wausdce.address, PROXY_ADMIN_SLOT);
-      //console.log(`admin`);
-      //console.log(value);
       let admin = bytes32ToAddress(value)
-      //console.log(admin);
       expect(admin).eq(proxyAdmin.address)
     })
     it("proxy admin has correct owner", async function () {
@@ -224,13 +217,13 @@ describe("SakeATokenVault-usdce-upgrades", function () {
 
     describe("setup", function () {
       it("accumulate interest", async function () {
-        let vaultStatsLast = await getVaultStats(wausdce)
+        let vaultStatsLast = await getVaultStats(wausdce, false)
         for(let i = 0; i < 1; i++) {
           // advance time
           await provider.send("evm_increaseTime", [SecondsPerDay]);
           await wausdce.connect(owner).transfer(owner.address, 1)
           // check updated stats
-          let vaultStatsNext = await getVaultStats(wausdce)
+          let vaultStatsNext = await getVaultStats(wausdce, false)
           expect(vaultStatsNext.totalSupply).eq(vaultStatsLast.totalSupply)
           expect(vaultStatsNext.usdceBalance).eq(vaultStatsLast.usdceBalance)
           expect(vaultStatsNext.ausdceBalance).gt(vaultStatsLast.ausdceBalance)
@@ -254,9 +247,9 @@ describe("SakeATokenVault-usdce-upgrades", function () {
         await usdce.connect(user2).approve(wausdce.address, MaxUint256)
         await wausdce.connect(user2).deposit(WeiPerUsdc.mul(3_000), user2.address)
 
-        tokenBalances01 = await getTokenBalances(user1.address, true, "user1")
-        tokenBalances02 = await getTokenBalances(user2.address, true, "user2")
-        tokenBalances03 = await getTokenBalances(user3.address, true, "user3")
+        tokenBalances01 = await getTokenBalances(user1.address, false, "user1")
+        tokenBalances02 = await getTokenBalances(user2.address, false, "user2")
+        tokenBalances03 = await getTokenBalances(user3.address, false, "user3")
       })
       it("make some approvals", async function () {
         await wausdce.connect(user1).approve(user2.address, 5)
@@ -283,7 +276,7 @@ describe("SakeATokenVault-usdce-upgrades", function () {
       //it("non proxy admin cannot upgrade", async function () {})
       it("can upgrade", async function () {
         // pre record vault stats
-        vaultStats0 = await getVaultStats(wausdce)
+        vaultStats0 = await getVaultStats(wausdce, false)
 
         let tx = await proxyAdmin.connect(owner).upgradeAndCall(wausdce.address, vaultImplementation2.address, "0x")
         await expect(tx).to.emit(vaultProxy, "Upgraded").withArgs(vaultImplementation2.address)
@@ -292,24 +285,18 @@ describe("SakeATokenVault-usdce-upgrades", function () {
     describe("after upgrade", function () {
       it("proxy has correct implementation", async function () {
         let value = await provider.getStorageAt(wausdce.address, PROXY_IMPLEMENTATION_SLOT);
-        //console.log(`impl`);
-        //console.log(value);
         let impl = bytes32ToAddress(value)
-        //console.log(impl);
         expect(impl).eq(vaultImplementation2.address)
       })
       it("proxy has correct admin", async function () {
         let value = await provider.getStorageAt(wausdce.address, PROXY_ADMIN_SLOT);
-        //console.log(`admin`);
-        //console.log(value);
         let admin = bytes32ToAddress(value)
-        //console.log(admin);
         expect(admin).eq(proxyAdmin.address)
       })
       it("user balances have not changed", async function () {
-        tokenBalances11 = await getTokenBalances(user1.address, true, "user1")
-        tokenBalances12 = await getTokenBalances(user2.address, true, "user2")
-        tokenBalances13 = await getTokenBalances(user3.address, true, "user3")
+        tokenBalances11 = await getTokenBalances(user1.address, false, "user1")
+        tokenBalances12 = await getTokenBalances(user2.address, false, "user2")
+        tokenBalances13 = await getTokenBalances(user3.address, false, "user3")
 
         expect(tokenBalances11.wausdceBalance).eq(tokenBalances01.wausdceBalance)
         expect(tokenBalances12.wausdceBalance).eq(tokenBalances02.wausdceBalance)
@@ -322,7 +309,7 @@ describe("SakeATokenVault-usdce-upgrades", function () {
         expect(await wausdce.allowance(user4.address, user5.address)).eq(0)
       })
       it("vault stats have not changed except interest", async function () {
-        vaultStats1 = await getVaultStats(wausdce)
+        vaultStats1 = await getVaultStats(wausdce, false)
         expect(vaultStats1.usdceBalance).eq(vaultStats0.usdceBalance)
         expectInRange(vaultStats1.ausdceBalance, vaultStats0.ausdceBalance, 10)
         expect(vaultStats1.wausdceBalance).eq(vaultStats0.wausdceBalance)
@@ -343,18 +330,10 @@ describe("SakeATokenVault-usdce-upgrades", function () {
         expect(await wausdce.referralCode()).eq(referralCode2) // same proxy address
       })
       /*
-      it("can use existing functions - deposit", async function () {
-        
-      })
-      it("can use existing functions - mint", async function () {
-        
-      })
-      it("can use existing functions - withdraw", async function () {
-        
-      })
-      it("can use existing functions - redeem", async function () {
-        
-      })
+      it("can use existing functions - deposit", async function () {})
+      it("can use existing functions - mint", async function () {})
+      it("can use existing functions - withdraw", async function () {})
+      it("can use existing functions - redeem", async function () {})
       */
     })
   })
