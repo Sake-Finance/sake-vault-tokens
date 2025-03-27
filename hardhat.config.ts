@@ -4,15 +4,16 @@ import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-abi-exporter";
 import "hardhat-contract-sizer";
-import "@nomiclabs/hardhat-vyper";
 import { config as dotenv_config } from "dotenv";
 dotenv_config();
 const USE_PROCESSED_FILES = process.env.USE_PROCESSED_FILES === "true";
 
-const soneium_minato_fork = { url: process.env.SONEIUM_MINATO_URL||'', blockNumber:parseInt(process.env.SONEIUM_MINATO_FORK_BLOCK)||undefined };
+const soneium_fork = { url: process.env.SONEIUM_URL||'', blockNumber:parseInt(process.env.SONEIUM_FORK_BLOCK||'0')||undefined };
+const soneium_minato_fork = { url: process.env.SONEIUM_MINATO_URL||'', blockNumber:parseInt(process.env.SONEIUM_MINATO_FORK_BLOCK||'0')||undefined };
 const no_fork = undefined;
 const forking = (
-    process.env.FORK_NETWORK === "minato"         ? soneium_minato_fork
+    process.env.FORK_NETWORK === "soneium"        ? soneium_fork
+  : process.env.FORK_NETWORK === "minato"         ? soneium_minato_fork
   : no_fork
 );
 
@@ -24,8 +25,25 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: process.env.FORK_NETWORK ? forking : undefined,
       chainId: Number(process.env.HARDHAT_CHAIN_ID ?? 31337),
+      chains: {
+        1868: {
+          hardforkHistory: {
+            cancun: 0,
+          },
+        },
+        1946: {
+          hardforkHistory: {
+            cancun: 0,
+          },
+        },
+      },
     },
     localhost: { url: "http://127.0.0.1:8545" },
+    soneium: {
+      url: process.env.SONEIUM_URL||'',
+      chainId: 1868,
+      accounts: accounts
+    },
     minato: {
       url: process.env.SONEIUM_MINATO_URL||'',
       chainId: 1946,
@@ -39,7 +57,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200_000,
+            runs: 1_000_000_000,
           },
         },
       },
@@ -72,6 +90,14 @@ const config: HardhatUserConfig = {
     },
     customChains: [
       {
+        network: "soneium",
+        chainId: 1868,
+        urls: {
+          apiURL: "https://soneium.blockscout.com/api",
+          browserURL: "https://soneium.blockscout.com"
+        }
+      },
+      {
         network: "minato",
         chainId: 1946,
         urls: {
@@ -80,22 +106,6 @@ const config: HardhatUserConfig = {
         }
       }
     ]
-  },
-  vyper: {
-    compilers: [
-      {
-        version: "0.2.4",
-        settings: {
-          optimize: "gas",
-        },
-      },
-      {
-        version: "0.2.8",
-        settings: {
-          optimize: "gas",
-        },
-      },
-    ],
   },
 };
 
