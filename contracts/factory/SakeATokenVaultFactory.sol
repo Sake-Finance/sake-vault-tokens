@@ -4,11 +4,11 @@ pragma solidity 0.8.24;
 
 import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Ownable2StepWTR } from "./Ownable2StepWTR.sol";
+import { Errors } from "./../libraries/Errors.sol";
+import { Ownable2StepWTR } from "./../utils/Ownable2StepWTR.sol";
 import { SakeTransparentUpgradeableProxy } from "./../proxy/SakeTransparentUpgradeableProxy.sol";
 import { ISakeATokenVault } from "./../interfaces/tokens/ISakeATokenVault.sol";
-import { ISakeATokenVaultFactory } from "./../interfaces/utils/ISakeATokenVaultFactory.sol";
-import { Errors } from "./../libraries/Errors.sol";
+import { ISakeATokenVaultFactory } from "./../interfaces/factory/ISakeATokenVaultFactory.sol";
 
 
 /// @title SakeATokenVaultFactory
