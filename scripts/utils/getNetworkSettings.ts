@@ -11,12 +11,13 @@
 // 81457: blast mainnet
 // 168587773: blast testnet
 // 80084: berachain bartio
+// 1868: soneium mainnet
 // 1946: soneium minato
 // 31337: hardhat testnet
 
 // given a chainID, returns some settings to use for the network
 export function getNetworkSettings(chainID: number) {
-  const KNOWN_CHAINS = [1, 5, 11155111, 137, 80001, 1313161554, 1313161555, 8453, 84531, 84532, 81457, 168587773, 80084, 1946, 31337];
+  const KNOWN_CHAINS = [1, 5, 11155111, 137, 80001, 1313161554, 1313161555, 8453, 84531, 84532, 81457, 168587773, 80084, 1868, 1946, 31337];
   if(!KNOWN_CHAINS.includes(chainID)) throw new Error(`chainID '${chainID}' unknown`);
 
   // number of blocks to wait to ensure finality
@@ -34,6 +35,7 @@ export function getNetworkSettings(chainID: number) {
     [81457]: 5,
     [168587773]: 5,
     [80084]: 5,
+    [1868]: 5,
     [1946]: 5,
     [31337]: 0
   };
@@ -63,8 +65,9 @@ export function getNetworkSettings(chainID: number) {
     //[81457]: {maxFeePerGas: ONE_GWEI*2, maxPriorityFeePerGas: ONE_GWEI/100}, // to burn nonces / fix replacement fee
     [168587773]: {maxFeePerGas: 500, maxPriorityFeePerGas: 50},
     [80084]: {},
-    //[1946]: {maxFeePerGas: 5000, maxPriorityFeePerGas: 500},
-    [1946]: {maxFeePerGas: ONE_GWEI, maxPriorityFeePerGas: ONE_GWEI/10},
+    [1868]: {maxFeePerGas: ONE_GWEI*0.12, maxPriorityFeePerGas: 50},
+    [1946]: {maxFeePerGas: 5000, maxPriorityFeePerGas: 50},
+    //[1946]: {maxFeePerGas: ONE_GWEI, maxPriorityFeePerGas: ONE_GWEI/10},
     [31337]: {},
   };
   let overrides = OVERRIDES.hasOwnProperty(chainID) ? OVERRIDES[chainID] : {};
@@ -88,6 +91,7 @@ export function getNetworkSettings(chainID: number) {
     [81457]: process.env.BLAST_URL,
     [168587773]: process.env.BLAST_SEPOLIA_URL,
     [80084]: process.env.BERACHAIN_BARTIO_URL,
+    [1868]: process.env.SONEIUM_URL,
     [1946]: process.env.SONEIUM_MINATO_URL,
     [31337]: "" // technically this does have a url when forking. but we want this to fail if not listening to prod network
   }
