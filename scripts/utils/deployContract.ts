@@ -23,9 +23,20 @@ exports.deployContract = deployContract
 export async function deployContractUsingContractFactory(deployer:Wallet|SignerWithAddress, contractName:string, args:any[]=[], salt:string=toBytes32(0), calldata:string|undefined=undefined, overrides:any={}, confirmations:number=0, desiredFactoryAddress=undefined) {
   let factoryContract = (await getFactoryContract(desiredFactoryAddress)).connect(deployer)
 
+  let isCalldata = (!!calldata && calldata != "0x")
   const contractFactory = await ethers.getContractFactory(contractName, deployer);
   const bytecode = contractFactory.getDeployTransaction(...args).data;
-  const tx = await (!calldata
+  try {
+    const predictedAddress = await ( (!isCalldata)
+      ? factoryContract.callStatic.deploy(bytecode, salt, overrides)
+      : factoryContract.callStatic.deployAndCall(bytecode, salt, calldata, overrides)
+    );
+    console.log(`predicted address ${predictedAddress}`);
+  } catch(e) {
+    console.error(`Error: contract not deployed. Either there is already a contract at the predicted address or the constructor reverted or network error.`)
+    throw e;
+  }
+  const tx = await ( (!isCalldata)
     ? factoryContract.deploy(bytecode, salt, overrides)
     : factoryContract.deployAndCall(bytecode, salt, calldata, overrides)
   );
@@ -35,6 +46,7 @@ export async function deployContractUsingContractFactory(deployer:Wallet|SignerW
     console.error(receipt)
     throw new Error("no events")
   }
+  console.log(`Gas used to deploy contract: ${receipt.gasUsed.toNumber().toLocaleString()}`)
   const createEvents = receipt.events.filter(event=>event.address == factoryContract.address)
   if(createEvents.length > 1) {
     console.log(`somehow created two contracts?`)

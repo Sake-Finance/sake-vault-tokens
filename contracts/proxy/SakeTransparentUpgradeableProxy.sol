@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.24;
 
-import {ITransparentUpgradeableProxy} from "./../interfaces/proxy/ITransparentUpgradeableProxy.sol";
+import { ITransparentUpgradeableProxy } from "./../interfaces/proxy/ITransparentUpgradeableProxy.sol";
 
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
